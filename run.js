@@ -3,9 +3,12 @@ const x = require('./x');
 const { isNewPost, cachePost } = require('./repost');
 const cleanPost = require('./format');
 
+// Define your profile URL once here
+const PROFILE_URL = "https://www.linkedin.com/in/saymanlal";
+
 async function run() {
   console.log("🔍 Scraping LinkedIn...");
-  const { text } = await linkedin(); // ⛔ No imageUrl destructuring now
+  const { text } = await linkedin(); // no postUrl anymore
 
   if (!text) {
     console.log("⚠️ No post found.");
@@ -14,14 +17,17 @@ async function run() {
 
   const formattedText = cleanPost(text);
 
-  if (isNewPost(formattedText)) { // ⛔ Pass only text to isNewPost
-    console.log("Latest Post:", formattedText.slice(0, 100) + "...");
+  // Append profile URL to the end manually
+  const finalText = `${formattedText}\n\n🌐 My LinkedIn profile: ${PROFILE_URL}`;
+
+  if (isNewPost(finalText, PROFILE_URL)) {
+    console.log("Latest Post:", finalText.slice(0, 100) + "...");
     console.log("Posting to X...");
 
-    await x(formattedText); // ✅ Pass only text to x()
-    cachePost(formattedText); // ✅ Cache only text
+    await x(finalText); // you can also pass finalText only
+    cachePost(finalText, PROFILE_URL);
 
-    console.log("Posted & cached.");
+    console.log("✅ Posted & cached.");
   } else {
     console.log("⚠️ Already posted. Skipping.");
   }

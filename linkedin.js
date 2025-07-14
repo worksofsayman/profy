@@ -22,11 +22,11 @@ async function autoScroll(page) {
     await page.evaluate(async () => {
         await new Promise(resolve => {
             let totalHeight = 0;
-            const distance = 200;
+            const distance = 300;
             const timer = setInterval(() => {
                 window.scrollBy(0, distance);
                 totalHeight += distance;
-                if (totalHeight > 2000) {
+                if (totalHeight > 2500) {
                     clearInterval(timer);
                     resolve();
                 }
@@ -38,78 +38,94 @@ async function autoScroll(page) {
 async function linkedin() {
     const browser = await puppeteer.launch({
         headless: false,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        args: ["--no-sandbox", "--disable-setuid-sandbox"]
     });
 
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 800 });
 
-    // Load cookies
+    // LOGIN FLOW
+    let loggedIn = false;
+
     if (fs.existsSync(COOKIE_FILE)) {
         const cookies = JSON.parse(fs.readFileSync(COOKIE_FILE));
         await page.setCookie(...cookies);
-        console.log("🍪 Cookies loaded. Skipping login...");
-    } else {
+        console.log("🍪 Cookies loaded. Checking session...");
+
+        await page.goto("https://www.linkedin.com/feed/", { waitUntil: "load", timeout: 0 });
+        const stillLoggedOut = await page.$('input[name="session_key"]');
+
+        if (!stillLoggedOut) {
+            console.log("✅ Session valid. Logged in with cookies.");
+            loggedIn = true;
+        } else {
+            console.log("⚠️ Session expired. Re-authenticating...");
+        }
+    }
+
+    if (!loggedIn) {
         await page.goto("https://www.linkedin.com/login", { waitUntil: "load", timeout: 0 });
-        await page.type("#username", process.env.LINKEDIN_EMAIL);
-        await page.type("#password", process.env.LINKEDIN_PASSWORD);
-        await Promise.all([
-            page.click('[type="submit"]'),
-            page.waitForNavigation({ waitUntil: "load" }),
-        ]);
+
+        const isCheckpoint = await page.$('input[name="session_password"]') !== null &&
+            (await page.$('input[name="session_key"]')) === null;
+
+        if (isCheckpoint) {
+            await page.type('input[name="session_password"]', process.env.LINKEDIN_PASSWORD);
+            await Promise.all([
+                page.click('[type="submit"]'),
+                page.waitForNavigation({ waitUntil: "load" }),
+            ]);
+            console.log("🔐 Logged in via checkpoint.");
+        } else {
+            await page.type('input[name="session_key"]', process.env.LINKEDIN_EMAIL);
+            await page.type('input[name="session_password"]', process.env.LINKEDIN_PASSWORD);
+            await Promise.all([
+                page.click('[type="submit"]'),
+                page.waitForNavigation({ waitUntil: "load" }),
+            ]);
+            console.log("🔐 Logged in via full login page.");
+        }
 
         console.log("🚨 If LinkedIn asks for SMS code, complete it in browser.");
         await waitForEnter();
 
         const cookies = await page.cookies();
         fs.writeFileSync(COOKIE_FILE, JSON.stringify(cookies, null, 2));
-        console.log("✅ Cookies saved.");
+        console.log("✅ New cookies saved.");
     }
 
-    // Go to your feed
+    // Go to recent activity
     await page.goto("https://www.linkedin.com/in/saymanlal/recent-activity/all", {
         waitUntil: "load",
-        timeout: 0,
+        timeout: 0
     });
 
     await autoScroll(page);
-    await page.waitForTimeout?.(3000);  // Optional pause for dynamic content
+    await new Promise(res => setTimeout(res, 5000));
 
     const result = await page.evaluate(() => {
-        const postEl = document.querySelector('.feed-shared-update-v2') || 
-                       document.querySelector('[data-id*="urn:li:activity"]');
+        const postEl = document.querySelector('.feed-shared-update-v2') ||
+            document.querySelector('[data-id*="urn:li:activity"]');
 
-        if (!postEl) return { text: null, imageUrl: null };
+        const textEl = postEl?.querySelector('.update-components-text') ||
+            postEl?.querySelector('[data-urn*="urn:li:activity"]');
 
-        // Clean text
-        const textNode = postEl.querySelector('.update-components-text') ||
-                         postEl.querySelector('[data-urn*="urn:li:activity"]');
+        const text = textEl?.innerText?.trim() || null;
 
-        const text = textNode?.innerText?.trim() || null;
-
-        // Clean image
-        const imgEl = Array.from(postEl.querySelectorAll('img')).find(
-            img => !img.src.includes('profile') &&
-                   !img.src.includes('emoji') &&
-                   img.naturalWidth > 100
-        );
-
-        const imageUrl = imgEl?.src || null;
-
-        return { text, imageUrl };
+        return { text };
     });
 
-    console.log("📝 Scraped Post Text (trimmed):", result.text?.slice(0, 200));
-    console.log("🖼️ Scraped Image URL:", result.imageUrl || "No image found");
+    // Append fixed LinkedIn profile link
+    const finalText = result.text
+        ? `${result.text.trim()}\n\n🌐 My LinkedIn profile: https://www.linkedin.com/in/saymanlal`
+        : null;
+
+    console.log("📝 Final Text with Profile Link:\n");
+    console.log(finalText || "⚠️ No post found.");
 
     await browser.close();
 
-    // Handle empty result
-    if (!result.text) {
-        console.warn("⚠️ No post found.");
-    }
-
-    return result;
+    return { text: finalText };
 }
 
 module.exports = linkedin;

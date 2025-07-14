@@ -10,14 +10,21 @@ const twitterClient = new TwitterApi({
 
 const rwClient = twitterClient.readWrite;
 
+const PROFILE_URL = "https://www.linkedin.com/in/saymanlal";
+
+function summarize(text, maxLength = 200) {
+  return text.length > maxLength ? text.slice(0, maxLength - 3) + "..." : text;
+}
+
 async function x(status) {
-  let tweetText = status.length > 280 ? status.slice(0, 277) + "..." : status;
+  const tweetText = summarize(status, 200);
+  const final = `${tweetText}\n🌐 My LinkedIn profile: ${PROFILE_URL}`;
 
   try {
-    const res = await rwClient.v2.tweet({ text: tweetText });  // ✅ v2 API used here
+    const res = await rwClient.v2.tweet({ text: final });
     console.log("✅ Posted to X via v2:", res.data.id);
   } catch (err) {
-    console.error("❌ X post failed (v2):", err.message || err);
+    console.error("❌ X post failed:", err.message || err);
   }
 }
 
