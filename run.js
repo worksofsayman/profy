@@ -5,7 +5,7 @@ const cleanPost = require('./format');
 
 async function run() {
   console.log("🔍 Scraping LinkedIn...");
-  const { text, imageUrl } = await linkedin();
+  const { text } = await linkedin(); // ⛔ No imageUrl destructuring now
 
   if (!text) {
     console.log("⚠️ No post found.");
@@ -14,12 +14,12 @@ async function run() {
 
   const formattedText = cleanPost(text);
 
-  if (isNewPost(formattedText, imageUrl)) {
+  if (isNewPost(formattedText)) { // ⛔ Pass only text to isNewPost
     console.log("Latest Post:", formattedText.slice(0, 100) + "...");
     console.log("Posting to X...");
 
-    await x(formattedText, imageUrl);
-    cachePost(formattedText, imageUrl);
+    await x(formattedText); // ✅ Pass only text to x()
+    cachePost(formattedText); // ✅ Cache only text
 
     console.log("Posted & cached.");
   } else {

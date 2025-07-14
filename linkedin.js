@@ -1,17 +1,17 @@
-const fs = require('fs');
-const puppeteer = require('puppeteer');
-const readline = require('readline');
-require('dotenv').config();
+const fs = require("fs");
+const puppeteer = require("puppeteer");
+const readline = require("readline");
+require("dotenv").config();
 
-const COOKIE_FILE = 'linkedin_cookies.json';
+const COOKIE_FILE = "linkedin_cookies.json";
 
 function waitForEnter() {
     return new Promise(resolve => {
         const rl = readline.createInterface({
             input: process.stdin,
-            output: process.stdout
+            output: process.stdout,
         });
-        rl.question('📲 Complete SMS verification in browser, then press ENTER to continue...', () => {
+        rl.question("📲 Complete SMS verification in browser, then press ENTER to continue...", () => {
             rl.close();
             resolve();
         });
@@ -22,11 +22,11 @@ async function autoScroll(page) {
     await page.evaluate(async () => {
         await new Promise(resolve => {
             let totalHeight = 0;
-            const distance = 100;
+            const distance = 200;
             const timer = setInterval(() => {
                 window.scrollBy(0, distance);
                 totalHeight += distance;
-                if (totalHeight > 1500) {
+                if (totalHeight > 2000) {
                     clearInterval(timer);
                     resolve();
                 }
@@ -44,55 +44,54 @@ async function linkedin() {
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 800 });
 
+    // Load cookies
     if (fs.existsSync(COOKIE_FILE)) {
         const cookies = JSON.parse(fs.readFileSync(COOKIE_FILE));
         await page.setCookie(...cookies);
         console.log("🍪 Cookies loaded. Skipping login...");
     } else {
-        // 👤 First-time login to LinkedIn
-        await page.goto('https://www.linkedin.com/login', {
-            waitUntil: 'load',
-            timeout: 0,
-        });
-
-        await page.type('#username', process.env.LINKEDIN_EMAIL);
-        await page.type('#password', process.env.LINKEDIN_PASSWORD);
-
+        await page.goto("https://www.linkedin.com/login", { waitUntil: "load", timeout: 0 });
+        await page.type("#username", process.env.LINKEDIN_EMAIL);
+        await page.type("#password", process.env.LINKEDIN_PASSWORD);
         await Promise.all([
-            page.click('[type=submit]'),
-            page.waitForNavigation({ waitUntil: 'load' }),
+            page.click('[type="submit"]'),
+            page.waitForNavigation({ waitUntil: "load" }),
         ]);
 
         console.log("🚨 If LinkedIn asks for SMS code, complete it in browser.");
         await waitForEnter();
 
-        // ✅ Save cookies after login
         const cookies = await page.cookies();
         fs.writeFileSync(COOKIE_FILE, JSON.stringify(cookies, null, 2));
         console.log("✅ Cookies saved.");
     }
 
-    // 🔍 Go to profile to scrape latest post
-    await page.goto(process.env.LINKEDIN_PROFILE_URL, {
-        waitUntil: 'load',
+    // Go to your feed
+    await page.goto("https://www.linkedin.com/in/saymanlal/recent-activity/all", {
+        waitUntil: "load",
         timeout: 0,
     });
 
     await autoScroll(page);
-    await new Promise(resolve => setTimeout(resolve, 3000)); // wait for feed to settle
+    await page.waitForTimeout?.(3000);  // Optional pause for dynamic content
 
     const result = await page.evaluate(() => {
-        const postEl = document.querySelector('.feed-shared-update-v2') ||
-            document.querySelector('[data-id*="urn:li:activity"]');
+        const postEl = document.querySelector('.feed-shared-update-v2') || 
+                       document.querySelector('[data-id*="urn:li:activity"]');
 
         if (!postEl) return { text: null, imageUrl: null };
 
-        const text = postEl.innerText?.trim() || null;
+        // Clean text
+        const textNode = postEl.querySelector('.update-components-text') ||
+                         postEl.querySelector('[data-urn*="urn:li:activity"]');
 
+        const text = textNode?.innerText?.trim() || null;
+
+        // Clean image
         const imgEl = Array.from(postEl.querySelectorAll('img')).find(
-            img => !img.src.includes('profile-displayphoto') &&
-                !img.src.includes('emoji') &&
-                img.naturalWidth > 100
+            img => !img.src.includes('profile') &&
+                   !img.src.includes('emoji') &&
+                   img.naturalWidth > 100
         );
 
         const imageUrl = imgEl?.src || null;
@@ -100,14 +99,17 @@ async function linkedin() {
         return { text, imageUrl };
     });
 
-
-    // ✅ Add logging here:
     console.log("📝 Scraped Post Text (trimmed):", result.text?.slice(0, 200));
     console.log("🖼️ Scraped Image URL:", result.imageUrl || "No image found");
 
     await browser.close();
-    return result;
 
+    // Handle empty result
+    if (!result.text) {
+        console.warn("⚠️ No post found.");
+    }
+
+    return result;
 }
 
 module.exports = linkedin;
