@@ -1,25 +1,33 @@
 const fs = require("fs");
 const path = require("path");
 const axios = require("axios");
-const Twitter = require("twitter-lite");
+const { TwitterApi } = require("twitter-api-v2");
 require("dotenv").config();
 
-const client = new Twitter({
-  consumer_key: process.env.TWITTER_API_KEY,
-  consumer_secret: process.env.TWITTER_API_SECRET,
-  access_token_key: process.env.TWITTER_ACCESS_TOKEN,
-  access_token_secret: process.env.TWITTER_ACCESS_SECRET,
+const twitterClient = new TwitterApi({
+  appKey: process.env.TWITTER_API_KEY,
+  appSecret: process.env.TWITTER_API_SECRET,
+  accessToken: process.env.TWITTER_ACCESS_TOKEN,
+  accessSecret: process.env.TWITTER_ACCESS_SECRET,
 });
 
 async function downloadImage(url, filename = "temp-image.jpg") {
-  const response = await axios({
-    url,
-    responseType: "arraybuffer",
-  });
+  try {
+    console.log("🖼️ Downloading and compressing image:", url);
+    const response = await axios.get(url, {
+      responseType: "arraybuffer",
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+      },
+    });
 
-  const filePath = path.resolve(__dirname, filename);
-  fs.writeFileSync(filePath, response.data);
-  return filePath;
+    const filePath = path.resolve(__dirname, filename);
+    fs.writeFileSync(filePath, response.data);
+    return filePath;
+  } catch (err) {
+    console.error("❌ Failed to download image:", err.message);
+    return null;
+  }
 }
 
 async function x(status, imageUrl = null) {
@@ -29,23 +37,27 @@ async function x(status, imageUrl = null) {
     let mediaId = null;
     if (imageUrl) {
       const imagePath = await downloadImage(imageUrl);
-      const mediaData = fs.readFileSync(imagePath);
-      const media = await client.post("media/upload", {
-        media: mediaData,
-      });
-      mediaId = media.media_id_string;
-      fs.unlinkSync(imagePath);
+      if (imagePath) {
+        const mediaData = fs.readFileSync(imagePath);
+        console.log("📤 Uploading image to X...");
+        const media = await twitterClient.v1.uploadMedia(mediaData, { mimeType: "image/jpeg" });
+        mediaId = media;
+        fs.unlinkSync(imagePath);
+      }
     }
 
-    const params = {
+    const tweetParams = {
       status: tweet,
-      ...(mediaId && { media_ids: mediaId }),
+      ...(mediaId && { media_ids: [mediaId] }),
     };
 
-    const response = await client.post("statuses/update", params);
-    console.log("Posted to X:", response.text);
+    const response = await twitterClient.v1.tweet(tweetParams.status, {
+      media_ids: mediaId ? [mediaId] : undefined,
+    });
+
+    console.log("✅ Successfully posted to X:", response.id_str);
   } catch (error) {
-    console.error("Failed to post to X:", error);
+    console.error("❌ Final X post failed:", error.message || error);
   }
 }
 
